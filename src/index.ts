@@ -204,7 +204,58 @@ export default function openaiServerCompactionExtension(pi: ExtensionAPI) {
     const model = ctx.model;
     if (!cfg.enabled || !model || !supportsRemoteCompactionModel(model)) return undefined;
 
-    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+    let compactionModel = model;
+    if (cfg.model.toLowerCase() !== "current") {
+      const slashIndex = cfg.model.indexOf("/");
+      if (slashIndex <= 0 || slashIndex === cfg.model.length - 1) {
+        if (ctx.hasUI) {
+          ctx.ui.notify(
+            `Invalid OpenAI compaction model \"${cfg.model}\"; expected \"provider/model-id\". Using the current model.`,
+            "warning",
+          );
+        }
+      } else {
+        const provider = cfg.model.slice(0, slashIndex);
+        const modelId = cfg.model.slice(slashIndex + 1);
+        const configuredModel = ctx.modelRegistry.find(provider, modelId);
+        if (!configuredModel) {
+          if (ctx.hasUI) {
+            ctx.ui.notify(
+              `Configured OpenAI compaction model \"${cfg.model}\" was not found. Using the current model.`,
+              "warning",
+            );
+          }
+        } else if (!supportsRemoteCompactionModel(configuredModel)) {
+          if (ctx.hasUI) {
+            ctx.ui.notify(
+              `Configured model \"${cfg.model}\" does not support OpenAI remote compaction. Using the current model.`,
+              "warning",
+            );
+          }
+        } else if (configuredModel.provider !== model.provider || configuredModel.api !== model.api) {
+          if (ctx.hasUI) {
+            ctx.ui.notify(
+              `Configured compaction model \"${cfg.model}\" must use the same provider/API as the current model. Using the current model.`,
+              "warning",
+            );
+          }
+        } else {
+          compactionModel = configuredModel;
+        }
+      }
+    }
+
+    let auth = await ctx.modelRegistry.getApiKeyAndHeaders(compactionModel);
+    if ((!auth.ok || !auth.apiKey) && modelKey(compactionModel) !== modelKey(model)) {
+      if (ctx.hasUI) {
+        ctx.ui.notify(
+          `Could not authenticate configured compaction model ${String(compactionModel.provider)}/${String(compactionModel.id)}; using the current model.`,
+          "warning",
+        );
+      }
+      compactionModel = model;
+      auth = await ctx.modelRegistry.getApiKeyAndHeaders(compactionModel);
+    }
     if (!auth.ok || !auth.apiKey) return undefined;
 
     const tools = buildToolsPayload(pi.getAllTools(), pi.getActiveTools());
@@ -216,29 +267,39 @@ export default function openaiServerCompactionExtension(pi: ExtensionAPI) {
     const responseItems = remoteState
       ? remoteState.explicitHistory
       : messagesToResponseItems(fullBranchMessages);
-    const promptResponseItems = normalizeResponseItemsForPrompt(responseItems, model);
-    const thinkingLevel = pi.getThinkingLevel();
-    const fallbackReasoning = model.reasoning
-      ? thinkingLevelToResponsesReasoning(thinkingLevel ?? getBranchThinkingLevel(branchEntries))
+    const promptResponseItems = normalizeResponseItemsForPrompt(responseItems, compactionModel);
+    const currentThinkingLevel = pi.getThinkingLevel();
+    const effectiveThinkingLevel =
+      cfg.reasoningEffort === "inherit"
+        ? currentThinkingLevel
+        : cfg.reasoningEffort === "none"
+          ? undefined
+          : cfg.reasoningEffort;
+    const fallbackReasoning = compactionModel.reasoning
+      ? thinkingLevelToResponsesReasoning(effectiveThinkingLevel ?? getBranchThinkingLevel(branchEntries))
       : undefined;
-    const reasoning = observedRequestShape?.reasoning ?? fallbackReasoning;
+    const configuredReasoning =
+      cfg.reasoningEffort !== "inherit"
+        ? { effort: cfg.reasoningEffort, summary: "auto" as const }
+        : undefined;
+    const reasoning = configuredReasoning ?? observedRequestShape?.reasoning ?? fallbackReasoning;
     const text = observedRequestShape?.text;
 
     const [localResult, remoteResult] = await Promise.allSettled([
       generateBestEffortLocalSummary({
         preparation: event.preparation,
         messages: fullBranchMessages,
-        model,
+        model: compactionModel,
         apiKey: auth.apiKey,
         headers: auth.headers,
         customInstructions: event.customInstructions,
         signal: event.signal,
-        thinkingLevel,
+        thinkingLevel: effectiveThinkingLevel,
         firstKeptEntryId: event.preparation.firstKeptEntryId,
         tokensBefore: event.preparation.tokensBefore,
       }),
       callRemoteCompactionEndpoint({
-        model,
+        model: compactionModel,
         apiKey: auth.apiKey,
         headers: auth.headers,
         sessionId,
@@ -263,11 +324,14 @@ export default function openaiServerCompactionExtension(pi: ExtensionAPI) {
       return undefined;
     }
 
-    const remoteDetails = buildRemoteCompactionDetails(
-      model,
-      remoteResult.value.output,
-      remoteResult.value.usage,
-    );
+    const remoteDetails = {
+      ...buildRemoteCompactionDetails(
+        model,
+        remoteResult.value.output,
+        remoteResult.value.usage,
+      ),
+      compactionModelKey: modelKey(compactionModel),
+    };
     const localSummary =
       localResult.status === "fulfilled"
         ? localResult.value
