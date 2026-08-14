@@ -103,13 +103,15 @@ On Pi compaction events for supported models, the extension:
 3. Retains recent user messages and stores them with the returned opaque `compaction` item in `CompactionEntry.details.remoteCompaction`
 4. Persists remote compaction usage metadata when the backend returns it
 
-The compaction request mirrors the shape of surrounding normal requests (reasoning effort, text settings, tool definitions) rather than using endpoint defaults.
+By default, the compaction request mirrors the surrounding normal request. You can override the model and reasoning effort in the extension config. A configured model must be registered in Pi and use the same provider/API as the active session model; changing only the concrete model id is supported. Invalid or unauthenticated overrides fall back to the current model with a warning.
 
 ## Safety
 
 The extension clears live continuation state on: session start/reload/resume, switch/fork, tree navigation, compaction completion, model selection, and shutdown.
 
 Remote compaction history is only replayed for compatible models. Cross-model turns are filtered from reconstructed replay history to prevent contamination after resume or tree navigation.
+
+When a different compaction model id is configured, the stored replay compatibility key remains the active session model while `compactionModelKey` records the model that actually generated the opaque artifact.
 
 ## Data handling
 
@@ -134,20 +136,28 @@ Config is read from:
   "thresholdRatio": 0.7,
   "compactThreshold": 0,
   "usePreviousResponseId": true,
-  "notify": false
+  "notify": false,
+  "model": "openai/gpt-5.6-sol",
+  "reasoningEffort": "high"
 }
 ```
 
+`model` defaults to `"current"`. Otherwise use Pi's `provider/model-id` syntax, for example `openai/gpt-5.6-sol`. The configured model must use the same provider/API as the active model.
+
+`reasoningEffort` defaults to `"inherit"`, which preserves the current behavior of mirroring the surrounding Responses request (or Pi's current thinking level when no request shape has been observed). Supported overrides are `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, and `"xhigh"`.
+
 Environment overrides:
 
-| Variable                                           | Effect                                                      |
-|----------------------------------------------------|-------------------------------------------------------------|
-| `PI_OPENAI_SERVER_COMPACTION_ENABLED`              | Enable/disable the extension                                |
-| `PI_OPENAI_SERVER_COMPACTION_AZURE`                | Include Azure OpenAI models                                 |
-| `PI_OPENAI_SERVER_COMPACTION_THRESHOLD`            | Explicit compact threshold (tokens)                         |
-| `PI_OPENAI_SERVER_COMPACTION_RATIO`                | Compact threshold as ratio of context window (default: 0.7) |
-| `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID` | Enable/disable `previous_response_id`                       |
-| `PI_OPENAI_SERVER_COMPACTION_NOTIFY`               | Show UI notifications when features activate                |
+| Variable                                                  | Effect                                                      |
+|-----------------------------------------------------------|-------------------------------------------------------------|
+| `PI_OPENAI_SERVER_COMPACTION_ENABLED`                     | Enable/disable the extension                                |
+| `PI_OPENAI_SERVER_COMPACTION_AZURE`                       | Include Azure OpenAI models                                 |
+| `PI_OPENAI_SERVER_COMPACTION_THRESHOLD`                   | Explicit compact threshold (tokens)                         |
+| `PI_OPENAI_SERVER_COMPACTION_RATIO`                       | Compact threshold as ratio of context window (default: 0.7) |
+| `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID`        | Enable/disable `previous_response_id`                       |
+| `PI_OPENAI_SERVER_COMPACTION_NOTIFY`                      | Show UI notifications when features activate                |
+| `PI_OPENAI_SERVER_COMPACTION_MODEL`                       | Compaction model (`current` or `provider/model-id`)          |
+| `PI_OPENAI_SERVER_COMPACTION_REASONING_EFFORT`            | Compaction reasoning effort (`inherit`, `none` ... `xhigh`)  |
 
 ## Troubleshooting
 
@@ -183,6 +193,7 @@ PI_OPENAI_SERVER_COMPACTION_TEST_MODEL=openai-codex/gpt-5.6-sol npm run test:liv
 
 - Pi's local JSONL/tree model remains authoritative
 - Opaque remote compaction artifacts are only reused for compatible OpenAI Responses turns
+- A configured compaction model can change the model id, but not the provider/API family of the active session model
 - Switching to a different provider/model falls back to Pi's text-summary portability path
 - Compaction usage/cost is captured in details but not yet folded into Pi's `get_session_stats()` (requires Pi core changes)
 

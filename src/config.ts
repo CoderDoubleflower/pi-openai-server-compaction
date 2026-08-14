@@ -10,6 +10,15 @@ import { join } from "node:path";
 
 export type JsonRecord = Record<string, unknown>;
 
+export type CompactionReasoningEffort =
+  | "inherit"
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
+
 export type ExtensionConfig = {
   enabled?: boolean;
   includeAzure?: boolean;
@@ -17,6 +26,10 @@ export type ExtensionConfig = {
   thresholdRatio?: number;
   notify?: boolean;
   usePreviousResponseId?: boolean;
+  /** `current` or a Pi model reference in `provider/model-id` form. */
+  model?: string;
+  /** Remote compaction reasoning effort. `inherit` mirrors the active request. */
+  reasoningEffort?: CompactionReasoningEffort;
 };
 
 export function isRecord(value: unknown): value is JsonRecord {
@@ -48,6 +61,28 @@ function toPositiveNumber(value: unknown): number | undefined {
   if (typeof value === "string") {
     const parsed = Number(value);
     if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
+}
+
+function toNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function toCompactionReasoningEffort(value: unknown): CompactionReasoningEffort | undefined {
+  const normalized = toNonEmptyString(value)?.toLowerCase();
+  if (
+    normalized === "inherit" ||
+    normalized === "none" ||
+    normalized === "minimal" ||
+    normalized === "low" ||
+    normalized === "medium" ||
+    normalized === "high" ||
+    normalized === "xhigh"
+  ) {
+    return normalized;
   }
   return undefined;
 }
@@ -84,6 +119,14 @@ export function loadConfig(cwd: string): Required<ExtensionConfig> {
       toBoolean(process.env.PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID) ??
       toBoolean(merged.usePreviousResponseId) ??
       true,
+    model:
+      toNonEmptyString(process.env.PI_OPENAI_SERVER_COMPACTION_MODEL) ??
+      toNonEmptyString(merged.model) ??
+      "current",
+    reasoningEffort:
+      toCompactionReasoningEffort(process.env.PI_OPENAI_SERVER_COMPACTION_REASONING_EFFORT) ??
+      toCompactionReasoningEffort(merged.reasoningEffort) ??
+      "inherit",
   };
 }
 
