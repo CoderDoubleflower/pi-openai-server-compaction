@@ -11,6 +11,9 @@ const {
   clampOpenAIPromptCacheKey,
   resolveOpenAIPromptCacheRetention,
 } = await import(pathToFileURL(join(repoRoot, "src", "openai-prompt-cache.ts")).href);
+const { normalizeProviderHeaders } = await import(
+  pathToFileURL(join(repoRoot, "src", "provider-headers.ts")).href
+);
 
 const longSessionId = `session_${"x".repeat(100)}`;
 const clampedSessionId = clampOpenAIPromptCacheKey(longSessionId);
@@ -99,5 +102,20 @@ assert.equal(
   }),
   primitivePayload,
 );
+
+assert.deepEqual(
+  normalizeProviderHeaders({
+    authorization: "Bearer test",
+    "x-remove": null,
+    "x-empty": "",
+  }),
+  {
+    authorization: "Bearer test",
+    "x-empty": "",
+  },
+  "nullable Pi provider headers must be omitted before raw fetch/legacy compaction calls",
+);
+assert.equal(normalizeProviderHeaders({ "x-remove": null }), undefined);
+assert.equal(normalizeProviderHeaders(undefined), undefined);
 
 console.log("cache payload smoke ok");
