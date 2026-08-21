@@ -3,6 +3,14 @@
 This changelog intentionally starts at **0.1.0**.
 
 ## Unreleased
+
+## 0.1.1 - 2026-08-22
+- restore Pi-native OpenAI prompt-cache behavior on the custom WebSocket transport
+- send a stable, Unicode-aware, 64-code-point-clamped `prompt_cache_key` derived from Pi's session id
+- preserve Pi's `short`, `long`, and `none` cache-retention semantics, including model-gated `prompt_cache_retention: "24h"` and GPT-5.6+ explicit cache-disable mode
+- apply cache defaults before the caller's `onPayload` hook so callers can still inspect or override the final payload
+- add an offline prompt-cache payload regression test covering key clamping, long-retention compatibility, cache disabling, and stale-field replacement
+- update supported and development Pi packages to `0.84.2`, require Node `>=22.19.0`, and document WebSocket-only troubleshooting
 - target Pi 0.80.9 and the `@earendil-works/*` package namespace
 - align compaction fallback, Responses payload normalization, Codex identity headers, and WebSocket behavior with Pi 0.80.9
 - replace the legacy `/responses/compact` call with Codex's current Responses compaction v2 protocol
