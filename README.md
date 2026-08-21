@@ -34,8 +34,8 @@ After updating the extension, run `/reload` in Pi if needed.
 
 ## Requirements
 
-- Node `>= 22`
-- Pi `>=0.80.9 <0.81.0`
+- Node `>=22.19.0`
+- Pi `>=0.84.2 <0.85.0`
 - Working Pi authentication/configuration for the model used for compaction
 - A supported OpenAI Responses model, for example `openai/gpt-5.6-sol` or `openai-codex/gpt-5.6-sol`
 
@@ -51,8 +51,28 @@ For direct `openai/*` models between compactions, the extension also:
 - patches requests with `store: true` and `context_management`
 - uses `previous_response_id` for live continuation when safe
 - provides a WebSocket-backed transport path with HTTP fallback
+- preserves Pi's native OpenAI prompt-cache fields on both the WebSocket and HTTP paths
 
 For `openai-codex/*` models, the extension keeps Pi's built-in Codex transport and injects reconstructed remote-compaction history after compaction boundaries.
+
+## Prompt-cache behavior
+
+The custom WebSocket path mirrors Pi 0.84.2's native OpenAI Responses cache behavior instead of silently dropping cache configuration:
+
+- the Pi session id is sent as a stable `prompt_cache_key`
+- keys are clamped to OpenAI's 64-Unicode-code-point limit
+- the default cache retention remains `short`
+- `cacheRetention: "long"` sends `prompt_cache_retention: "24h"` only when the model declares support
+- `cacheRetention: "none"` removes the cache key and only sends `prompt_cache_options: { "mode": "explicit" }` for models that declare support for that field
+- a caller's `onPayload` hook still runs after these defaults are applied and can inspect or override them
+
+Pi's compatibility environment setting is also preserved:
+
+```bash
+PI_CACHE_RETENTION=long pi
+```
+
+Compaction still changes the effective prompt prefix. Therefore, the first request after an actual compaction can legitimately have a lower cache-hit rate; subsequent requests should establish a new reusable prefix.
 
 ## Configurable compaction model and reasoning effort
 
@@ -166,10 +186,11 @@ Environment overrides:
 | `PI_OPENAI_SERVER_COMPACTION_AZURE` | Include Azure OpenAI models |
 | `PI_OPENAI_SERVER_COMPACTION_THRESHOLD` | Explicit compact threshold in tokens |
 | `PI_OPENAI_SERVER_COMPACTION_RATIO` | Compact threshold as a ratio of context window; default `0.7` |
-| `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID` | Enable/disable `previous_response_id` |
+| `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID` | Enable/disable `previous_response_id` and the custom WebSocket path |
 | `PI_OPENAI_SERVER_COMPACTION_NOTIFY` | Show UI notifications when features activate |
 | `PI_OPENAI_SERVER_COMPACTION_MODEL` | Compaction model: `current` or `provider/model-id` |
 | `PI_OPENAI_SERVER_COMPACTION_REASONING_EFFORT` | Compaction reasoning effort: `inherit`, `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` |
+| `PI_CACHE_RETENTION` | Pi/OpenAI prompt-cache compatibility setting; `long` requests 24-hour retention when supported |
 
 Example using environment variables:
 
@@ -215,15 +236,24 @@ Users should be aware:
 
 If something goes wrong:
 
-1. Disable the extension with `PI_OPENAI_SERVER_COMPACTION_ENABLED=0` or `"enabled": false`.
-2. Run Pi with `--no-extensions` to bypass extensions entirely.
-3. Run `/reload` after changing configuration or updating the GitHub installation.
-4. Remove the extension with `pi remove pi-openai-server-compaction`.
-5. Inspect session JSONL for `compaction` entries containing `details.remoteCompaction` and `compactionModelKey`.
+1. Disable only `previous_response_id` and the custom WebSocket path while keeping remote compaction enabled: `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID=0 pi`.
+2. Disable the extension completely with `PI_OPENAI_SERVER_COMPACTION_ENABLED=0` or `"enabled": false`.
+3. Run Pi with `--no-extensions` to bypass extensions entirely.
+4. Run `/reload` after changing configuration or updating the GitHub installation.
+5. Remove the extension with `pi remove pi-openai-server-compaction`.
+6. Inspect session JSONL for `compaction` entries containing `details.remoteCompaction` and `compactionModelKey`.
+
+For cache diagnosis, compare otherwise identical sessions with the custom WebSocket path enabled and disabled. Inspect the provider usage fields (`cacheRead`/cached tokens and `cacheWrite`) rather than relying only on a single latest-request percentage.
 
 ## Testing
 
-Smoke test:
+Prompt-cache payload regression test, with no API key required:
+
+```bash
+npm run smoke:cache
+```
+
+Full local smoke test:
 
 ```bash
 npm run smoke
@@ -247,6 +277,7 @@ PI_OPENAI_SERVER_COMPACTION_TEST_MODEL=openai-codex/gpt-5.6-sol npm run test:liv
 - Opaque remote compaction artifacts are only reused for compatible OpenAI Responses turns.
 - A configured compaction model may change the model id, but not the provider/API family of the active session model.
 - Switching to a different provider/model falls back to Pi's portable text-summary path.
+- An actual compaction creates a new prompt-cache boundary; the first post-compaction request may be a cold or partial hit.
 - Compaction usage/cost is captured in details but is not yet folded into Pi's `get_session_stats()`.
 
 ## Repo layout
@@ -257,13 +288,15 @@ PI_OPENAI_SERVER_COMPACTION_TEST_MODEL=openai-codex/gpt-5.6-sol npm run test:liv
 | `src/remote-compaction.ts` | Responses compaction v2 integration and replacement-history handling |
 | `src/openai-ws-stream.ts` | WebSocket continuation path |
 | `src/openai-ws-connection.ts` | WebSocket connection manager |
+| `src/openai-prompt-cache.ts` | Pi-compatible OpenAI prompt-cache key and retention helpers |
 | `src/openai.ts` | Model detection and payload patching |
-| `src/custom-stream.ts` | Provider override entrypoint |
+| `src/custom-stream.ts` | Provider override entrypoint and prompt-cache parity wrapper |
 | `src/config.ts` | Configuration loading |
 | `src/state.ts` | Ephemeral per-session runtime state |
 | `src/stream-message-shared.ts` | Shared assistant message builders |
 | `tests/live/openai-compaction-rpc-live.ts` | Live Pi RPC regression test |
-| `scripts/smoke.mjs` | Offline smoke test |
+| `scripts/cache-payload-smoke.mjs` | Offline prompt-cache payload regression test |
+| `scripts/smoke.mjs` | Offline integration smoke test |
 | `ARCHITECTURE.md` | Design and control-flow documentation |
 | `TESTPLAN.md` | Manual and automated test plan |
 | `CHANGELOG.md` | Version history |

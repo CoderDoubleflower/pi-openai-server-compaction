@@ -3,14 +3,19 @@
 This changelog intentionally starts at **0.1.0**.
 
 ## Unreleased
-- target Pi 0.80.9 and the `@earendil-works/*` package namespace
-- align compaction fallback, Responses payload normalization, Codex identity headers, and WebSocket behavior with Pi 0.80.9
-- replace the legacy `/responses/compact` call with Codex's current Responses compaction v2 protocol
-- stream a normal Responses request with a trailing `compaction_trigger` and persist the returned `compaction` item
+
+## 0.1.1 - 2026-08-22
+- restore Pi-native OpenAI prompt-cache behavior on the custom WebSocket transport
+- send a stable, Unicode-aware, 64-code-point-clamped `prompt_cache_key` derived from Pi's session id
+- preserve Pi's `short`, `long`, and `none` cache-retention semantics, including model-gated `prompt_cache_retention: "24h"` and GPT-5.6+ explicit cache-disable mode
+- apply cache defaults before the caller's `onPayload` hook so callers can still inspect or override the final payload
+- add an offline prompt-cache payload regression test covering key clamping, long-retention compatibility, cache disabling, and stale-field replacement
+- port the extension from its earlier Pi 0.80.9 integration to Pi 0.84.2, including updated peer and development dependencies and Node `>=22.19.0`
+- retain the Responses compaction v2 protocol, replacement-history normalization, Codex identity headers, WebSocket continuation, and HTTP fallback on the updated Pi API surface
+- replace the legacy `/responses/compact` call with a normal Responses stream containing a trailing `compaction_trigger`, and persist the returned `compaction` item
 - retain recent user messages with the same 20K-token budget shape used by Codex while continuing to read legacy version 1 session artifacts
-- add a reproducible native-vs-text compaction benchmark, retained GPT-5.6 Sol evidence, and a standalone report
-- add a fixed-context, information-density-calibrated product-defaults benchmark comparing Pi's real default compactor with the extension's real native replay policy
-- correct the earlier benchmark's same-budget interpretation: its text cap was selected after observing native output usage
+- add reproducible native-vs-text and product-defaults compaction benchmarks, including corrected caveats around billed-token matching and the earlier same-budget interpretation
+- correct package repository, homepage, and issue-tracker metadata for the CoderDoubleflower fork
 
 During local development on 2026-04-09, the project used temporary internal version bumps while features, tests, docs, and packaging were being assembled. Those local-only bumps were collapsed before the first public push so the repository does not imply a longer tracked public release history than it actually has.
 

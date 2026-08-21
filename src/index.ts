@@ -23,6 +23,7 @@ import {
   thinkingLevelToResponsesReasoning,
 } from "./openai.ts";
 import { releaseAllWsSessions, releaseWsSession } from "./openai-ws-stream.ts";
+import { normalizeProviderHeaders } from "./provider-headers.ts";
 import {
   buildCompactionSummaryText,
   buildRemoteCompactionDetails,
@@ -257,6 +258,7 @@ export default function openaiServerCompactionExtension(pi: ExtensionAPI) {
       auth = await ctx.modelRegistry.getApiKeyAndHeaders(compactionModel);
     }
     if (!auth.ok || !auth.apiKey) return undefined;
+    const requestHeaders = normalizeProviderHeaders(auth.headers);
 
     const tools = buildToolsPayload(pi.getAllTools(), pi.getActiveTools());
     const sessionId = getSessionId(ctx);
@@ -291,7 +293,7 @@ export default function openaiServerCompactionExtension(pi: ExtensionAPI) {
         messages: fullBranchMessages,
         model: compactionModel,
         apiKey: auth.apiKey,
-        headers: auth.headers,
+        headers: requestHeaders,
         customInstructions: event.customInstructions,
         signal: event.signal,
         thinkingLevel: effectiveThinkingLevel,
@@ -301,7 +303,7 @@ export default function openaiServerCompactionExtension(pi: ExtensionAPI) {
       callRemoteCompactionEndpoint({
         model: compactionModel,
         apiKey: auth.apiKey,
-        headers: auth.headers,
+        headers: requestHeaders,
         sessionId,
         input: promptResponseItems,
         instructions: ctx.getSystemPrompt(),
