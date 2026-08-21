@@ -7,11 +7,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/algal/pi-openai-server-compaction.git"
+    "url": "git+https://github.com/CoderDoubleflower/pi-openai-server-compaction.git"
   },
-  "homepage": "https://github.com/algal/pi-openai-server-compaction#readme",
+  "homepage": "https://github.com/CoderDoubleflower/pi-openai-server-compaction#readme",
   "bugs": {
-    "url": "https://github.com/algal/pi-openai-server-compaction/issues"
+    "url": "https://github.com/CoderDoubleflower/pi-openai-server-compaction/issues"
   },
   "keywords": [
     "pi-package",
