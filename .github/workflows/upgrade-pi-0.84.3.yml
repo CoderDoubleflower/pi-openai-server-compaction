@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - chore/pi-0.84.3
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
