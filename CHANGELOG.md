@@ -4,6 +4,12 @@ This changelog intentionally starts at **0.1.0**.
 
 ## Unreleased
 
+## 0.1.2 - 2026-08-25
+- consume Responses V2 compaction as an incremental SSE stream instead of buffering the successful response with `response.text()`
+- validate that the stream completes with exactly one non-empty encrypted `compaction` blob and normalize the `compaction_summary` compatibility alias
+- surface nested `error` and `response.failed` messages, preserve abort behavior during stream reads, and reject malformed or incomplete SSE responses
+- add an offline protocol smoke test covering arbitrary byte chunking, split UTF-8 code points, CRLF framing, `[DONE]`, empty/duplicate blobs, failed streams, missing completion, and the full request-to-persisted-history path
+
 ## 0.1.1 - 2026-08-22
 - restore Pi-native OpenAI prompt-cache behavior on the custom WebSocket transport
 - send a stable, Unicode-aware, 64-code-point-clamped `prompt_cache_key` derived from Pi's session id

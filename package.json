@@ -1,6 +1,6 @@
 {
   "name": "pi-openai-server-compaction",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Pi extension for OpenAI server-side compaction with Codex-quality continuity.",
@@ -57,7 +57,8 @@
   },
   "scripts": {
     "smoke:cache": "node --experimental-strip-types ./scripts/cache-payload-smoke.mjs",
-    "smoke": "npm run smoke:cache && node --experimental-strip-types ./scripts/smoke.mjs",
+    "smoke:v2": "node --experimental-strip-types ./scripts/remote-compaction-v2-smoke.mjs",
+    "smoke": "npm run smoke:cache && npm run smoke:v2 && node --experimental-strip-types ./scripts/smoke.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && npm run smoke",
     "test:live": "node --experimental-strip-types ./tests/live/openai-compaction-rpc-live.ts"
