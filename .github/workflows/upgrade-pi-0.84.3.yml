@@ -1,0 +1,53 @@
+name: Upgrade Pi 0.84.3
+
+on:
+  push:
+    branches:
+      - chore/pi-0.84.3
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/pi-0.84.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+
+      - name: Pin Pi 0.84.3 test dependencies
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+
+          const path = "package.json";
+          const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+          pkg.devDependencies["@earendil-works/pi-agent-core"] = "0.84.3";
+          pkg.devDependencies["@earendil-works/pi-ai"] = "0.84.3";
+          pkg.devDependencies["@earendil-works/pi-coding-agent"] = "0.84.3";
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Install dependencies
+        run: npm install --no-package-lock
+
+      - name: Typecheck and smoke tests
+        run: npm test
+
+      - name: Commit validated upgrade
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "chore: upgrade Pi test baseline to 0.84.3"
+          git push origin HEAD:chore/pi-0.84.3
