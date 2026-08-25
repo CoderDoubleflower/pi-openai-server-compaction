@@ -1,13 +1,9 @@
 /**
- * Mid-run threshold trigger for transparent OpenAI Responses compaction.
+ * Mid-run threshold trigger for transparent Responses compaction.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type ExtensionConfig, loadConfig } from "./config.ts";
-import {
-  resolveCompactThreshold,
-  supportsRemoteCompactionModel,
-  type ModelLike,
-} from "./openai.ts";
+import { resolveCompactThreshold, type ModelLike } from "./openai.ts";
 import {
   compactInlineAtTurnBoundary,
   InlineAutoCompactionUnavailableError,
@@ -131,7 +127,7 @@ function warnUnavailable(
   state.warningEmitted = true;
   notifySafely(
     ctx,
-    `OpenAI transparent mid-run compaction is unavailable: ${reason}. The current run will continue without interrupting.`,
+    `Transparent mid-run compaction is unavailable: ${reason}. The current run will continue without interrupting.`,
     "warning",
   );
 }
@@ -178,7 +174,7 @@ export function registerMidRunCompaction(
     try {
       const cfg = configLoader(ctx.cwd);
       if (!cfg.enabled || cfg.midRunCompaction !== "resume") return;
-      if (!ctx.model || !supportsRemoteCompactionModel(ctx.model)) return;
+      if (!ctx.model) return;
       if (ctx.signal?.aborted) return;
       if (
         event.message?.stopReason === "error" ||
@@ -219,7 +215,7 @@ export function registerMidRunCompaction(
       if (cfg.notify) {
         notifySafely(
           ctx,
-          `OpenAI compaction threshold reached mid-run (~${Math.round(tokens).toLocaleString()} tokens); compacting inline`,
+          `Compaction threshold reached mid-run (~${Math.round(tokens).toLocaleString()} tokens); compacting inline`,
           "info",
         );
       }
@@ -228,7 +224,7 @@ export function registerMidRunCompaction(
         await inlineCompact(ctx.sessionManager, ctx.signal);
         resetRetry(state);
         if (cfg.notify) {
-          notifySafely(ctx, "OpenAI transparent mid-run compaction complete", "info");
+          notifySafely(ctx, "Transparent mid-run compaction complete", "info");
         }
       } catch (error) {
         if (isStaleExtensionContextError(error)) throw error;
@@ -242,7 +238,7 @@ export function registerMidRunCompaction(
         if (message !== "Compaction cancelled" && !ctx.signal?.aborted) {
           notifySafely(
             ctx,
-            `OpenAI transparent mid-run compaction failed: ${message}${retrySuffix(delay)}`,
+            `Transparent mid-run compaction failed: ${message}${retrySuffix(delay)}`,
             "error",
           );
         }

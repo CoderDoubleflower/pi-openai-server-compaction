@@ -1,18 +1,19 @@
 # pi-openai-server-compaction
 
-A Pi extension that adds **Codex-style OpenAI server-side compaction** while preserving Pi's normal session, tool, fork, tree, and portability behavior.
+A Pi extension that adds **Codex-style Responses server-side compaction** while preserving Pi's normal session, tool, fork, tree, and portability behavior.
 
-The extension mirrors the OpenAI Responses compaction flow used by Codex: it sends the active conversation to the Responses API with a trailing `compaction_trigger`, stores the returned opaque compaction item, and keeps a portable Pi text summary as a fallback.
+The extension sends the active conversation to a Responses-compatible endpoint with a trailing `compaction_trigger`, stores the returned opaque compaction item, and keeps a portable Pi text summary as a fallback.
 
-> **Status:** experimental but live-tested against real Pi + OpenAI backends.
+> **Status:** experimental. Built-in OpenAI backends are live-tested; custom-provider behavior has offline transport and fallback coverage.
 
 ## Support matrix
 
-| Provider/model family | Remote compaction | `previous_response_id` continuity | Custom WS stream | Live-tested |
+| Provider/model family | Remote compaction | `previous_response_id` continuity | Custom WS stream | Validation |
 |---|---:|---:|---:|---:|
-| `openai/*` | Yes | Yes | Yes | Yes |
-| `openai-codex/*` | Yes | No (built-in transport retained) | No (built-in transport retained) | Yes |
-| Azure | Partial (opt-in via config) | Partial | No | No |
+| `openai/*` | Yes | Yes | Yes | Live-tested |
+| `openai-codex/*` | Yes | No (built-in transport retained) | No (built-in transport retained) | Live-tested |
+| Custom Responses-compatible provider | Yes, with a usable `baseUrl` | Provider-dependent | No | Offline-tested |
+| Azure | Partial (opt-in via config) | Partial | No | Not live-tested |
 
 ## Install
 
@@ -36,15 +37,16 @@ After updating the extension, run `/reload` in Pi if needed.
 
 - Node `>=22.19.0`
 - Pi `>=0.84.2 <0.85.0`
-- Working Pi authentication/configuration for the model used for compaction
-- A supported OpenAI Responses model, for example `openai/gpt-5.6-sol` or `openai-codex/gpt-5.6-sol`
+- working Pi authentication/configuration for the model used for compaction
+- a Responses-compatible compaction model, either built in or registered through a custom Pi provider
+- for custom providers, a usable `baseUrl` on the model or returned by the provider's auth resolution
 
 ## What it does
 
 On compaction, the extension runs two paths in parallel:
 
 1. Generates a **portable Pi text summary** for cross-model/session portability.
-2. Calls OpenAI Responses remote compaction and stores the returned opaque `compaction` item for higher-fidelity continuation on compatible OpenAI models.
+2. Calls a Responses V2 remote-compaction endpoint and stores the returned opaque `compaction` item for higher-fidelity continuation on a compatible model.
 
 For direct `openai/*` models between compactions, the extension also:
 
@@ -55,9 +57,27 @@ For direct `openai/*` models between compactions, the extension also:
 
 For `openai-codex/*` models, the extension keeps Pi's built-in Codex transport and injects reconstructed remote-compaction history after compaction boundaries.
 
+For a custom provider, the extension uses the registered model, resolved auth/base URL, and provider-supplied headers. It does not register or replace that provider's normal stream implementation.
+
+## Transparent mid-run compaction
+
+Long tool loops can opt into compaction at an awaited `turn_end` boundary, after the current tool batch is complete and before the next provider request:
+
+```json
+{
+  "midRunCompaction": "resume"
+}
+```
+
+This calls Pi 0.84.x's private non-aborting `_runAutoCompaction("threshold", false)` path, refreshes the next agent-loop context from compacted messages, and continues inside the original `session.prompt()` promise. It does not call public `ctx.compact()` or inject a synthetic continuation message.
+
+The trigger itself is provider-agnostic. The compaction hook then tries the configured model/fallback chain described below.
+
+See `docs/MID_RUN_COMPACTION.md` for the private-adapter safety model and endpoint rules.
+
 ## Prompt-cache behavior
 
-The custom WebSocket path mirrors Pi 0.84.2's native OpenAI Responses cache behavior instead of silently dropping cache configuration:
+The custom WebSocket path for direct `openai/*` models mirrors Pi 0.84.2's native OpenAI Responses cache behavior instead of silently dropping cache configuration:
 
 - the Pi session id is sent as a stable `prompt_cache_key`
 - keys are clamped to OpenAI's 64-Unicode-code-point limit
@@ -72,23 +92,24 @@ Pi's compatibility environment setting is also preserved:
 PI_CACHE_RETENTION=long pi
 ```
 
-Compaction still changes the effective prompt prefix. Therefore, the first request after an actual compaction can legitimately have a lower cache-hit rate; subsequent requests should establish a new reusable prefix.
+Compaction changes the effective prompt prefix. Therefore, the first request after an actual compaction can legitimately have a lower cache-hit rate; subsequent requests should establish a new reusable prefix.
 
-## Configurable compaction model and reasoning effort
+## Configurable compaction model and fallback
 
-The compaction request no longer has to use exactly the same concrete model and thinking strength as the active Pi session.
+The compaction request does not have to use the active Pi model.
 
 You can configure:
 
-- `model`: which model performs compaction
+- `model`: which registered provider/model is attempted first
 - `reasoningEffort`: how much reasoning effort the compaction request uses
 
-Example:
+Example with a custom provider:
 
 ```json
 {
   "enabled": true,
-  "model": "openai/gpt-5.6-sol",
+  "midRunCompaction": "resume",
+  "model": "my-responses-provider/my-model",
   "reasoningEffort": "high"
 }
 ```
@@ -103,25 +124,41 @@ Default:
 }
 ```
 
-`"current"` means the active Pi model is used, preserving the extension's original behavior.
+`"current"` means the active Pi model is used.
 
 To override it, use Pi's `provider/model-id` syntax:
 
 ```json
 {
-  "model": "openai/gpt-5.6-sol"
+  "model": "my-responses-provider/my-model"
 }
 ```
 
-The configured model must:
+The configured model must exist in Pi's model registry. It is **not** required to use the same provider name or API identifier as the active session model.
 
-- exist in Pi's model registry
-- support this extension's OpenAI remote-compaction flow
-- use the **same provider/API family** as the active session model
+For a custom provider, the extension resolves its authentication and final base URL through Pi's model registry, preserves provider headers, and constructs the Responses endpoint as follows:
 
-Changing only the concrete model id is supported. For example, an `openai/*` session can use another compatible `openai/*` model for compaction.
+```text
+base URL already ends in /responses → use it directly
+base URL ends in /v1                → append /responses
+otherwise                           → append /v1/responses
+```
 
-If the configured model is invalid, unavailable, incompatible, or cannot be authenticated, the extension falls back to the current session model and shows a warning when UI is available.
+Built-in `openai/*` and `openai-codex/*` models continue to use their existing specialized endpoint and identity-header behavior.
+
+The operational fallback order is:
+
+```text
+configured provider/model
+        ↓ authentication, HTTP, or protocol failure
+current session model
+        ↓ remote compaction failure
+portable local summary
+        ↓ local summarization failure
+Pi default compaction
+```
+
+Fallback warnings are shown when a UI is available. Cancellation does not start another fallback request.
 
 ### `reasoningEffort`
 
@@ -143,18 +180,7 @@ Supported values:
 - `high`
 - `xhigh`
 
-`inherit` keeps the original behavior: the extension mirrors the surrounding Responses request when available, otherwise it falls back to Pi's current thinking level.
-
-An explicit value overrides that behavior for the compaction request. For example:
-
-```json
-{
-  "model": "openai/gpt-5.6-sol",
-  "reasoningEffort": "xhigh"
-}
-```
-
-This is useful when the interactive session uses a faster/cheaper model or lower thinking level, but you want compaction to spend more compute preserving long-term context.
+`inherit` mirrors the surrounding Responses request when available, otherwise it falls back to Pi's current thinking level. An explicit value overrides that behavior for the compaction request.
 
 ## Configuration
 
@@ -172,6 +198,7 @@ Full example:
   "thresholdRatio": 0.7,
   "compactThreshold": 0,
   "usePreviousResponseId": true,
+  "midRunCompaction": "off",
   "notify": false,
   "model": "current",
   "reasoningEffort": "inherit"
@@ -183,52 +210,55 @@ Environment overrides:
 | Variable | Effect |
 |---|---|
 | `PI_OPENAI_SERVER_COMPACTION_ENABLED` | Enable/disable the extension |
-| `PI_OPENAI_SERVER_COMPACTION_AZURE` | Include Azure OpenAI models |
+| `PI_OPENAI_SERVER_COMPACTION_AZURE` | Include Azure OpenAI models for legacy continuation behavior |
 | `PI_OPENAI_SERVER_COMPACTION_THRESHOLD` | Explicit compact threshold in tokens |
 | `PI_OPENAI_SERVER_COMPACTION_RATIO` | Compact threshold as a ratio of context window; default `0.7` |
-| `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID` | Enable/disable `previous_response_id` and the custom WebSocket path |
-| `PI_OPENAI_SERVER_COMPACTION_NOTIFY` | Show UI notifications when features activate |
-| `PI_OPENAI_SERVER_COMPACTION_MODEL` | Compaction model: `current` or `provider/model-id` |
-| `PI_OPENAI_SERVER_COMPACTION_REASONING_EFFORT` | Compaction reasoning effort: `inherit`, `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` |
-| `PI_CACHE_RETENTION` | Pi/OpenAI prompt-cache compatibility setting; `long` requests 24-hour retention when supported |
+| `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID` | Enable/disable `previous_response_id` and the direct-OpenAI custom WebSocket path |
+| `PI_OPENAI_SERVER_COMPACTION_MID_RUN` | `off` or `resume`; default `off` |
+| `PI_OPENAI_SERVER_COMPACTION_NOTIFY` | Show ordinary UI notifications when features activate |
+| `PI_OPENAI_SERVER_COMPACTION_MODEL` | Compaction model: `current` or any registered `provider/model-id` |
+| `PI_OPENAI_SERVER_COMPACTION_REASONING_EFFORT` | `inherit`, `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` |
+| `PI_CACHE_RETENTION` | Pi/OpenAI prompt-cache compatibility setting |
 
-Example using environment variables:
+Example:
 
 ```bash
-PI_OPENAI_SERVER_COMPACTION_MODEL=openai/gpt-5.6-sol \
+PI_OPENAI_SERVER_COMPACTION_MID_RUN=resume \
+PI_OPENAI_SERVER_COMPACTION_MODEL=my-responses-provider/my-model \
 PI_OPENAI_SERVER_COMPACTION_REASONING_EFFORT=high \
 pi
 ```
 
 ## How compaction works
 
-On a supported Pi compaction event, the extension:
+On a Pi compaction event, the extension:
 
-1. Resolves the configured compaction model, or uses the current model.
-2. Resolves authentication for that model.
-3. Converts the current Pi branch into OpenAI Responses items.
-4. Normalizes the history for the selected compaction model.
+1. Resolves the configured compaction model and retains the current model as fallback.
+2. Resolves authentication, headers, and any auth-overridden base URL for the candidate.
+3. Converts the current Pi branch into Responses items.
+4. Normalizes the history for the candidate model.
 5. Generates a portable Pi text summary.
-6. Calls the Responses endpoint with conversation history, tools, system instructions, reasoning configuration, text configuration, and a trailing `compaction_trigger`.
-7. Stores the returned opaque compaction artifact in `CompactionEntry.details.remoteCompaction`.
-8. Records `compactionModelKey` so the model that actually generated the artifact can be inspected later.
+6. Calls the candidate's Responses endpoint with conversation history, tools, system instructions, tuning fields, and a trailing `compaction_trigger`.
+7. On candidate failure, retries with the current session model.
+8. Stores a successful opaque artifact in `CompactionEntry.details.remoteCompaction`.
+9. Records `compactionModelKey` so the model that actually generated the artifact can be inspected.
 
-The replay compatibility key remains tied to the active session model so existing session reconstruction and continuation behavior are preserved.
+The replay compatibility key remains tied to the active session model, preserving Pi session reconstruction semantics while allowing a different model to perform compaction.
 
 ## Safety and fallback behavior
 
 The extension clears live continuation state on session start/reload/resume, switch/fork, tree navigation, compaction completion, model selection, and shutdown.
 
-Remote compaction history is only replayed for compatible models. Cross-model turns are filtered from reconstructed replay history to prevent contamination after resume or tree navigation.
+Persisted remote history is replayed only when its model key matches the active request model. This matching rule applies equally to built-in and custom providers. Cross-model turns are filtered during reconstruction to prevent contamination after resume or tree navigation.
 
-If remote compaction fails but the portable local summary succeeds, Pi continues using the local summary rather than losing the compaction operation entirely.
+If all remote candidates fail but the portable local summary succeeds, Pi continues using the local summary. If local summarization also fails, the extension returns control to Pi's default compaction implementation.
 
 ## Data handling
 
 Users should be aware:
 
-- direct `openai/*` requests are patched with `store: true`
-- conversation context is sent to OpenAI's Responses compaction protocol
+- direct `openai/*` requests may be patched with `store: true`
+- compaction context is sent to the selected provider's Responses-compatible endpoint
 - returned opaque compaction artifacts are stored in Pi's local session JSONL
 - these artifacts are provider-native and not human-readable
 
@@ -236,27 +266,46 @@ Users should be aware:
 
 If something goes wrong:
 
-1. Disable only `previous_response_id` and the custom WebSocket path while keeping remote compaction enabled: `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID=0 pi`.
-2. Disable the extension completely with `PI_OPENAI_SERVER_COMPACTION_ENABLED=0` or `"enabled": false`.
-3. Run Pi with `--no-extensions` to bypass extensions entirely.
-4. Run `/reload` after changing configuration or updating the GitHub installation.
-5. Remove the extension with `pi remove pi-openai-server-compaction`.
-6. Inspect session JSONL for `compaction` entries containing `details.remoteCompaction` and `compactionModelKey`.
+1. Set `"model": "current"` to bypass a custom compaction model while keeping the extension enabled.
+2. Set `"midRunCompaction": "off"` to disable only same-run triggering.
+3. Disable only direct-OpenAI `previous_response_id`/WebSocket behavior with `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID=0 pi`.
+4. Disable the extension completely with `PI_OPENAI_SERVER_COMPACTION_ENABLED=0` or `"enabled": false`.
+5. Run Pi with `--no-extensions` to bypass extensions entirely.
+6. Run `/reload` after changing configuration or updating the GitHub installation.
+7. Inspect session JSONL for `compaction` entries containing `details.remoteCompaction` and `compactionModelKey`.
 
-For cache diagnosis, compare otherwise identical sessions with the custom WebSocket path enabled and disabled. Inspect the provider usage fields (`cacheRead`/cached tokens and `cacheWrite`) rather than relying only on a single latest-request percentage.
+For a custom provider, verify its resolved `baseUrl`, auth header behavior, and support for streaming Responses events containing exactly one encrypted `compaction` item.
 
 ## Testing
 
-Prompt-cache payload regression test, with no API key required:
+Offline prompt-cache payload regression:
 
 ```bash
 npm run smoke:cache
 ```
 
-Full local smoke test:
+Offline Responses V2 protocol regression:
 
 ```bash
-npm run smoke
+npm run smoke:v2
+```
+
+Offline same-run adapter/trigger regression:
+
+```bash
+npm run smoke:midrun
+```
+
+Offline custom-provider endpoint, header, fallback, trigger, and replay regression:
+
+```bash
+npm run smoke:custom-provider
+```
+
+Full local test suite:
+
+```bash
+npm test
 ```
 
 Live end-to-end test, requiring working Pi + OpenAI authentication:
@@ -265,18 +314,13 @@ Live end-to-end test, requiring working Pi + OpenAI authentication:
 npm run test:live
 ```
 
-Override the live-test model:
-
-```bash
-PI_OPENAI_SERVER_COMPACTION_TEST_MODEL=openai-codex/gpt-5.6-sol npm run test:live
-```
+The repository does not include credentials for a live custom-provider test.
 
 ## Limitations
 
 - Pi's local JSONL/tree model remains authoritative.
-- Opaque remote compaction artifacts are only reused for compatible OpenAI Responses turns.
-- A configured compaction model may change the model id, but not the provider/API family of the active session model.
-- Switching to a different provider/model falls back to Pi's portable text-summary path.
+- A custom provider must implement the Responses V2 streaming compaction protocol expected by this extension.
+- `previous_response_id` and the custom WebSocket transport remain limited to the existing direct-OpenAI compatibility path; custom-provider remote-history replay does not imply those features.
 - An actual compaction creates a new prompt-cache boundary; the first post-compaction request may be a cold or partial hit.
 - Compaction usage/cost is captured in details but is not yet folded into Pi's `get_session_stats()`.
 
@@ -284,23 +328,20 @@ PI_OPENAI_SERVER_COMPACTION_TEST_MODEL=openai-codex/gpt-5.6-sol npm run test:liv
 
 | File | Purpose |
 |---|---|
-| `src/index.ts` | Extension wiring, compaction hook, lifecycle handling |
-| `src/remote-compaction.ts` | Responses compaction v2 integration and replacement-history handling |
-| `src/openai-ws-stream.ts` | WebSocket continuation path |
-| `src/openai-ws-connection.ts` | WebSocket connection manager |
-| `src/openai-prompt-cache.ts` | Pi-compatible OpenAI prompt-cache key and retention helpers |
-| `src/openai.ts` | Model detection and payload patching |
-| `src/custom-stream.ts` | Provider override entrypoint and prompt-cache parity wrapper |
+| `src/extension.ts` | Public entrypoint and same-run adapter installation |
+| `src/index.ts` | Provider-agnostic wrapper around the compatibility core |
+| `src/index-core.ts` | Existing OpenAI/Codex lifecycle and compaction implementation |
+| `src/provider-agnostic-hooks.ts` | Configured-model attempt/fallback and custom-provider replay wrappers |
+| `src/remote-compaction-transport.ts` | Built-in and custom endpoint/header resolution |
+| `src/remote-compaction-v2.ts` | Incremental Responses V2 transport and validation |
+| `src/mid-run-compaction.ts` | Awaited `turn_end` threshold trigger |
+| `src/inline-auto-compaction.ts` | Pi 0.84.x private same-run adapter |
+| `src/openai-ws-stream.ts` | Direct-OpenAI WebSocket continuation path |
 | `src/config.ts` | Configuration loading |
 | `src/state.ts` | Ephemeral per-session runtime state |
-| `src/stream-message-shared.ts` | Shared assistant message builders |
+| `scripts/custom-provider-compaction-smoke.mjs` | Custom-provider regression suite |
 | `tests/live/openai-compaction-rpc-live.ts` | Live Pi RPC regression test |
-| `scripts/cache-payload-smoke.mjs` | Offline prompt-cache payload regression test |
-| `scripts/smoke.mjs` | Offline integration smoke test |
-| `ARCHITECTURE.md` | Design and control-flow documentation |
-| `TESTPLAN.md` | Manual and automated test plan |
-| `CHANGELOG.md` | Version history |
 
 ## License
 
-MIT. See `LICENSE.md`.
+MIT. See `LICENSE.md` and `THIRD_PARTY_NOTICES.md`.

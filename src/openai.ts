@@ -86,9 +86,17 @@ export function supportsPreviousResponseId(
   return cfg.includeAzure && isAzureOpenAIResponsesModel(model);
 }
 
-export function supportsRemoteCompactionModel(model: unknown): model is ModelLike {
-  if (!isOpenAIResponsesModel(model)) return false;
-  return isDirectOpenAIResponsesModel(model) || isOpenAICodexResponsesModel(model);
+/**
+ * Remote compaction candidates are intentionally not restricted by provider
+ * name. Standard Responses API models are accepted directly; a custom API can
+ * also be attempted when its registered model exposes an explicit base URL.
+ * Operational failures are handled by the configured-model fallback chain.
+ */
+export function supportsRemoteCompactionModel(model: unknown): boolean {
+  if (!isRecord(model)) return false;
+  if (typeof model.id !== "string" || !model.id.trim()) return false;
+  if (isOpenAIResponsesModel(model)) return true;
+  return typeof model.baseUrl === "string" && Boolean(model.baseUrl.trim());
 }
 
 export function resolveCompactThreshold(

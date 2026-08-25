@@ -7,6 +7,10 @@
  */
 export * from "./remote-compaction-core.ts";
 export {
+  buildRemoteCompactionHeaders,
+  remoteCompactionV2EndpointUrl,
+} from "./remote-compaction-transport.ts";
+export {
   buildRemoteCompactionV2History,
   callRemoteCompactionEndpoint,
   parseRemoteCompactionV2Events,

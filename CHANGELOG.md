@@ -4,6 +4,14 @@ This changelog intentionally starts at **0.1.0**.
 
 ## Unreleased
 
+## 0.1.4 - 2026-08-25
+- remove the `openai` / `openai-codex` provider-name allowlist from mid-run and Responses V2 remote-compaction candidates
+- attempt the exact user-configured `provider/model` first, including custom API identifiers with an explicit compatible `baseUrl`
+- preserve provider-supplied request headers and continue using the existing specialized OpenAI and ChatGPT/Codex transport behavior for built-in models
+- fall back from a failed configured model to the current session model, then to the portable local summary and finally Pi's default compaction
+- replay persisted remote-compaction history for matching custom provider/model requests based on the successful model key rather than provider identity
+- add offline coverage for custom endpoints, headers, model ordering, operational fallback, mid-run triggering, and remote-history replay
+
 ## 0.1.3 - 2026-08-25
 - add opt-in `midRunCompaction: "resume"` for transparent threshold compaction at awaited `turn_end` boundaries during long tool loops
 - call Pi 0.84.x's private non-aborting `_runAutoCompaction("threshold", false)` pipeline so the original agent run and `session.prompt()` promise remain active without synthetic continuation messages
