@@ -21,8 +21,6 @@ import {
 import { isRecord, loadConfig } from "./config.ts";
 import {
   applyRemoteHistoryPayloadPatch,
-  extractResponsesReasoningConfig,
-  extractResponsesTextConfig,
   looksLikeResponsesPayload,
   modelKey,
   thinkingLevelToResponsesReasoning,
@@ -234,6 +232,7 @@ async function attemptConfiguredCompaction(params: {
           summary: buildCompactionSummaryText(activeModel),
           firstKeptEntryId: event.preparation.firstKeptEntryId,
           tokensBefore: event.preparation.tokensBefore,
+          details: undefined,
         };
   const remoteDetails = {
     ...buildRemoteCompactionDetails(
