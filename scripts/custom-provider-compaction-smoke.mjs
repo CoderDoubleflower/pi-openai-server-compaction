@@ -85,6 +85,9 @@ const customHeaders = buildRemoteCompactionHeaders({
 assert.equal(customHeaders.Authorization, "Custom custom-token");
 assert.equal(customHeaders["x-provider-feature"], "enabled");
 assert.match(customHeaders["x-codex-beta-features"], /remote_compaction_v2/);
+assert.equal(customHeaders["x-codex-installation-id"], undefined);
+assert.equal(customHeaders["x-codex-window-id"], undefined);
+assert.equal(customHeaders.session_id, undefined);
 
 let capturedUrl;
 let capturedBody;
@@ -116,6 +119,7 @@ try {
 
   assert.equal(capturedUrl, "https://gateway.example/v1/responses");
   assert.equal(capturedHeaders.get("x-provider-feature"), "enabled");
+  assert.equal(capturedHeaders.get("x-codex-installation-id"), null);
   assert.equal(capturedBody.model, "custom-model");
   assert.deepEqual(capturedBody.input.at(-1), { type: "compaction_trigger" });
   assert.equal(result.output.at(-1).encrypted_content, "CUSTOM_BLOB");
@@ -158,6 +162,83 @@ assert.deepEqual(attemptOrder, [
   "my-responses-gateway/custom-model",
   "openai/current-model",
 ]);
+
+{
+  const previousConfiguredModel =
+    process.env.PI_OPENAI_SERVER_COMPACTION_MODEL;
+  process.env.PI_OPENAI_SERVER_COMPACTION_MODEL =
+    "my-responses-gateway/custom-model";
+  try {
+    const handlers = new Map();
+    const notices = [];
+    let fallbackCalls = 0;
+    let fallbackResolvedModel;
+    const basePi = {
+      on(name, handler) {
+        handlers.set(name, handler);
+      },
+    };
+    const wrappedPi = createProviderAgnosticExtensionApi(basePi);
+    wrappedPi.on("session_before_compact", (_event, fallbackCtx) => {
+      fallbackCalls += 1;
+      fallbackResolvedModel = fallbackCtx.modelRegistry.find(
+        customModel.provider,
+        customModel.id,
+      );
+      return {
+        compaction: {
+          summary: "current-model fallback",
+          firstKeptEntryId: "m-1",
+          tokensBefore: 100,
+        },
+      };
+    });
+
+    const result = await handlers.get("session_before_compact")(
+      {
+        preparation: { firstKeptEntryId: "m-1", tokensBefore: 100 },
+        branchEntries: [],
+        signal: new AbortController().signal,
+      },
+      {
+        cwd: "/tmp/custom-provider-project",
+        model: currentModel,
+        hasUI: true,
+        ui: {
+          notify(message, type) {
+            notices.push([message, type]);
+          },
+        },
+        sessionManager: { getSessionId: () => "fallback-session" },
+        modelRegistry: {
+          find(provider, modelId) {
+            return provider === customModel.provider &&
+              modelId === customModel.id
+              ? customModel
+              : undefined;
+          },
+          async getApiKeyAndHeaders(model) {
+            if (model.provider === customModel.provider) {
+              return { ok: false, error: "custom credentials rejected" };
+            }
+            return { ok: true, apiKey: "current-key" };
+          },
+        },
+      },
+    );
+
+    assert.equal(fallbackCalls, 1);
+    assert.equal(modelKey(fallbackResolvedModel), modelKey(currentModel));
+    assert.equal(result.compaction.summary, "current-model fallback");
+    assert.match(notices[0][0], /falling back to current model/);
+  } finally {
+    if (previousConfiguredModel === undefined) {
+      delete process.env.PI_OPENAI_SERVER_COMPACTION_MODEL;
+    } else {
+      process.env.PI_OPENAI_SERVER_COMPACTION_MODEL = previousConfiguredModel;
+    }
+  }
+}
 
 {
   const handlers = new Map();
