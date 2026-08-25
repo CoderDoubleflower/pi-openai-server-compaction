@@ -92,7 +92,7 @@ export function supportsPreviousResponseId(
  * also be attempted when its registered model exposes an explicit base URL.
  * Operational failures are handled by the configured-model fallback chain.
  */
-export function supportsRemoteCompactionModel(model: unknown): model is ModelLike {
+export function supportsRemoteCompactionModel(model: unknown): boolean {
   if (!isRecord(model)) return false;
   if (typeof model.id !== "string" || !model.id.trim()) return false;
   if (isOpenAIResponsesModel(model)) return true;
