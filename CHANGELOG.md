@@ -4,6 +4,12 @@ This changelog intentionally starts at **0.1.0**.
 
 ## Unreleased
 
+## 0.1.3 - 2026-08-25
+- add opt-in `midRunCompaction: "resume"` for transparent threshold compaction at awaited `turn_end` boundaries during long tool loops
+- call Pi 0.84.x's private non-aborting `_runAutoCompaction("threshold", false)` pipeline so the original agent run and `session.prompt()` promise remain active without synthetic continuation messages
+- capture the owning host `AgentSession`, fail closed on unknown private-method shapes, reject unpaired tool calls, forward real cancellation to `abortCompaction()`, and refresh the next low-level message snapshot from compacted `agent.state.messages`
+- add per-session in-flight isolation, exponential retry backoff, one-time unsupported-host warnings, and an offline smoke suite covering same-run continuation, context refresh, tool-call safety, cancellation, configuration, threshold triggering, and retry suppression
+
 ## 0.1.2 - 2026-08-25
 - consume Responses V2 compaction as an incremental SSE stream instead of buffering the successful response with `response.text()`
 - validate that the stream completes with exactly one non-empty encrypted `compaction` blob and normalize the `compaction_summary` compatibility alias
