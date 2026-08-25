@@ -1,6 +1,6 @@
 {
   "name": "pi-openai-server-compaction",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "description": "Pi extension for OpenAI server-side compaction with Codex-quality continuity.",
@@ -27,16 +27,18 @@
   "files": [
     "src",
     "tests",
+    "docs",
     "README.md",
     "ARCHITECTURE.md",
     "TESTPLAN.md",
     "VALIDATION.md",
     "CHANGELOG.md",
-    "LICENSE.md"
+    "LICENSE.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./src/extension.ts"
     ]
   },
   "peerDependencies": {
@@ -58,7 +60,8 @@
   "scripts": {
     "smoke:cache": "node --experimental-strip-types ./scripts/cache-payload-smoke.mjs",
     "smoke:v2": "node --experimental-strip-types ./scripts/remote-compaction-v2-smoke.mjs",
-    "smoke": "npm run smoke:cache && npm run smoke:v2 && node --experimental-strip-types ./scripts/smoke.mjs",
+    "smoke:midrun": "node --experimental-strip-types ./scripts/mid-run-compaction-smoke.mjs",
+    "smoke": "npm run smoke:cache && npm run smoke:v2 && npm run smoke:midrun && node --experimental-strip-types ./scripts/smoke.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && npm run smoke",
     "test:live": "node --experimental-strip-types ./tests/live/openai-compaction-rpc-live.ts"
