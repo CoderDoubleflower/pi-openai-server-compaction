@@ -5,13 +5,27 @@
  * session binds extension internals, then delegates all existing OpenAI
  * compaction behavior to the original extension factory.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  AgentSession,
+  type ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 import openaiServerCompactionExtension from "./index.ts";
-import { installHostInlineAutoCompactionAdapter } from "./inline-auto-compaction.ts";
+import {
+  installHostInlineAutoCompactionAdapter,
+  installInlineAutoCompactionAdapter,
+} from "./inline-auto-compaction.ts";
 import { registerMidRunCompaction } from "./mid-run-compaction.ts";
 
 export default async function extension(pi: ExtensionAPI): Promise<void> {
-  const adapterStatus = await installHostInlineAutoCompactionAdapter();
+  // Pi aliases this static import to its own host module, including bundled and
+  // virtual-module runtimes. Host discovery remains as a fallback for duplicate
+  // independently loaded identities.
+  const directStatus = installInlineAutoCompactionAdapter({
+    sessionClass: AgentSession as never,
+  });
+  const discoveredStatus = await installHostInlineAutoCompactionAdapter();
+  const adapterStatus = directStatus.supported ? directStatus : discoveredStatus;
+
   openaiServerCompactionExtension(pi);
   registerMidRunCompaction(pi, adapterStatus);
 }
