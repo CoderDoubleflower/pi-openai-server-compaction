@@ -1,6 +1,5 @@
 import type { Model } from "@earendil-works/pi-ai";
 import {
-  buildCodexIdentityHeaders,
   buildRemoteCompactionHeaders as buildBuiltInRemoteCompactionHeaders,
   remoteCompactionV2EndpointUrl as builtInRemoteCompactionV2EndpointUrl,
 } from "./remote-compaction-core.ts";
@@ -85,7 +84,8 @@ function hasAuthorizationHeader(
 
 /**
  * Preserve provider-supplied headers for custom providers. Built-in OpenAI and
- * Codex models keep their existing identity/account headers unchanged.
+ * Codex models keep their existing identity/account headers unchanged. Custom
+ * providers do not receive Codex installation, window, or account identifiers.
  */
 export function buildRemoteCompactionHeaders(params: {
   model: Model<any>;
@@ -107,7 +107,6 @@ export function buildRemoteCompactionHeaders(params: {
 
   const providerHeaders = params.headers ?? {};
   return withRemoteCompactionV2Feature({
-    ...buildCodexIdentityHeaders(params.sessionId),
     ...(!hasAuthorizationHeader(providerHeaders)
       ? { authorization: `Bearer ${params.apiKey}` }
       : {}),
