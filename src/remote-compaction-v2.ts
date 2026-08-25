@@ -8,16 +8,18 @@ import { calculateCost, type Model } from "@earendil-works/pi-ai";
 import { isRecord } from "./config.ts";
 import { supportsRemoteCompactionModel } from "./openai.ts";
 import {
-  buildRemoteCompactionHeaders,
   buildRemoteCompactionRequestBody,
   buildRemoteCompactionV2History as buildRemoteCompactionV2HistoryCore,
-  remoteCompactionV2EndpointUrl,
   type RemoteCompactionResult,
   type RemoteCompactionUsageSnapshot,
   type ResponseItem,
   type ResponsesReasoningConfig,
   type ResponsesTextConfig,
 } from "./remote-compaction-core.ts";
+import {
+  buildRemoteCompactionHeaders,
+  remoteCompactionV2EndpointUrl,
+} from "./remote-compaction-transport.ts";
 
 export type RemoteCompactionV2Events = {
   compactionItem: ResponseItem;
@@ -322,7 +324,7 @@ export async function callRemoteCompactionEndpoint(params: {
 }): Promise<RemoteCompactionResult> {
   if (!supportsRemoteCompactionModel(params.model)) {
     throw new Error(
-      "Remote compaction v2 is currently only enabled for supported OpenAI-compatible Responses models.",
+      `Configured compaction model ${String(params.model.provider)}/${String(params.model.id)} does not expose a Responses-compatible remote compaction endpoint.`,
     );
   }
 
