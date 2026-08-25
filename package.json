@@ -33,7 +33,8 @@
     "TESTPLAN.md",
     "VALIDATION.md",
     "CHANGELOG.md",
-    "LICENSE.md"
+    "LICENSE.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "pi": {
     "extensions": [
