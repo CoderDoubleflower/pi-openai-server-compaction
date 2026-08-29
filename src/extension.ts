@@ -1,31 +1,13 @@
 /**
  * Public Pi extension entrypoint.
  *
- * Installs the private Pi 0.84.x same-run compaction adapter before the host
- * session binds extension internals, then delegates all existing OpenAI
- * compaction behavior to the original extension factory.
+ * Pi 0.84.4+ owns automatic compaction timing, including threshold checks
+ * between tool execution and the next assistant response in the same run. This
+ * extension only customizes compaction through Pi's public lifecycle hooks.
  */
-import {
-  AgentSession,
-  type ExtensionAPI,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import openaiServerCompactionExtension from "./index.ts";
-import {
-  installHostInlineAutoCompactionAdapter,
-  installInlineAutoCompactionAdapter,
-} from "./inline-auto-compaction.ts";
-import { registerMidRunCompaction } from "./mid-run-compaction.ts";
 
-export default async function extension(pi: ExtensionAPI): Promise<void> {
-  // Pi aliases this static import to its own host module, including bundled and
-  // virtual-module runtimes. Host discovery remains as a fallback for duplicate
-  // independently loaded identities.
-  const directStatus = installInlineAutoCompactionAdapter({
-    sessionClass: AgentSession as never,
-  });
-  const discoveredStatus = await installHostInlineAutoCompactionAdapter();
-  const adapterStatus = directStatus.supported ? directStatus : discoveredStatus;
-
+export default function extension(pi: ExtensionAPI): void {
   openaiServerCompactionExtension(pi);
-  registerMidRunCompaction(pi, adapterStatus);
 }

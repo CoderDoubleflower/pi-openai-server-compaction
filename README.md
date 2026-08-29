@@ -36,10 +36,12 @@ After updating the extension, run `/reload` in Pi if needed.
 ## Requirements
 
 - Node `>=22.19.0`
-- Pi `>=0.84.2 <0.85.0`
+- Pi `>=0.84.4 <0.85.0`
 - working Pi authentication/configuration for the model used for compaction
 - a Responses-compatible compaction model, either built in or registered through a custom Pi provider
 - for custom providers, a usable `baseUrl` on the model or returned by the provider's auth resolution
+
+Pi 0.84.4 is the minimum because Pi itself now performs the auto-compaction threshold check after tool results and before the next assistant response in the same agent run.
 
 ## What it does
 
@@ -59,25 +61,32 @@ For `openai-codex/*` models, the extension keeps Pi's built-in Codex transport a
 
 For a custom provider, the extension uses the registered model, resolved auth/base URL, and provider-supplied headers. It does not register or replace that provider's normal stream implementation.
 
-## Transparent mid-run compaction
+## Pi-native tool-boundary auto-compaction
 
-Long tool loops can opt into compaction at an awaited `turn_end` boundary, after the current tool batch is complete and before the next provider request:
+The extension no longer contains a separate same-run trigger or patches private `AgentSession` methods.
 
-```json
-{
-  "midRunCompaction": "resume"
-}
+With Pi 0.84.4 or newer, Pi owns the complete trigger sequence:
+
+```text
+assistant requests tools
+→ tools finish and results are appended
+→ Pi checks its auto-compaction threshold
+→ Pi emits session_before_compact when the threshold is crossed
+→ this extension supplies the portable summary and Responses V2 artifact
+→ Pi persists the compaction, refreshes agent context, and starts the next assistant response
 ```
 
-This calls Pi 0.84.x's private non-aborting `_runAutoCompaction("threshold", false)` path, refreshes the next agent-loop context from compacted messages, and continues inside the original `session.prompt()` promise. It does not call public `ctx.compact()` or inject a synthetic continuation message.
+Pi only performs this between-turn check when the agent loop will actually continue. A terminating tool batch with no queued steering or follow-up message does not cause an unnecessary compaction.
 
-The trigger itself is provider-agnostic. The compaction hook then tries the configured model/fallback chain described below.
+The trigger uses Pi's normal compaction settings, including `compaction.enabled`, `compaction.reserveTokens`, and `compaction.keepRecentTokens`. The obsolete extension setting `midRunCompaction` and environment variable `PI_OPENAI_SERVER_COMPACTION_MID_RUN` have been removed; old occurrences are ignored as unknown configuration.
 
-See `docs/MID_RUN_COMPACTION.md` for the private-adapter safety model and endpoint rules.
+The extension's `compactThreshold` and `thresholdRatio` settings remain separate: they control the OpenAI Responses `context_management[].compact_threshold` field for direct `openai/*` requests. They do **not** control Pi's local tool-boundary trigger.
+
+Manual `/compact` and overflow recovery use the same public Pi compaction lifecycle and therefore use the same extension implementation.
 
 ## Prompt-cache behavior
 
-The custom WebSocket path for direct `openai/*` models mirrors Pi 0.84.2's native OpenAI Responses cache behavior instead of silently dropping cache configuration:
+The custom WebSocket path for direct `openai/*` models mirrors Pi's native OpenAI Responses cache behavior instead of silently dropping cache configuration:
 
 - the Pi session id is sent as a stable `prompt_cache_key`
 - keys are clamped to OpenAI's 64-Unicode-code-point limit
@@ -108,7 +117,6 @@ Example with a custom provider:
 ```json
 {
   "enabled": true,
-  "midRunCompaction": "resume",
   "model": "my-responses-provider/my-model",
   "reasoningEffort": "high"
 }
@@ -198,7 +206,6 @@ Full example:
   "thresholdRatio": 0.7,
   "compactThreshold": 0,
   "usePreviousResponseId": true,
-  "midRunCompaction": "off",
   "notify": false,
   "model": "current",
   "reasoningEffort": "inherit"
@@ -211,10 +218,9 @@ Environment overrides:
 |---|---|
 | `PI_OPENAI_SERVER_COMPACTION_ENABLED` | Enable/disable the extension |
 | `PI_OPENAI_SERVER_COMPACTION_AZURE` | Include Azure OpenAI models for legacy continuation behavior |
-| `PI_OPENAI_SERVER_COMPACTION_THRESHOLD` | Explicit compact threshold in tokens |
-| `PI_OPENAI_SERVER_COMPACTION_RATIO` | Compact threshold as a ratio of context window; default `0.7` |
+| `PI_OPENAI_SERVER_COMPACTION_THRESHOLD` | Explicit Responses `context_management` threshold in tokens |
+| `PI_OPENAI_SERVER_COMPACTION_RATIO` | Responses `context_management` threshold as a ratio of context window; default `0.7` |
 | `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID` | Enable/disable `previous_response_id` and the direct-OpenAI custom WebSocket path |
-| `PI_OPENAI_SERVER_COMPACTION_MID_RUN` | `off` or `resume`; default `off` |
 | `PI_OPENAI_SERVER_COMPACTION_NOTIFY` | Show ordinary UI notifications when features activate |
 | `PI_OPENAI_SERVER_COMPACTION_MODEL` | Compaction model: `current` or any registered `provider/model-id` |
 | `PI_OPENAI_SERVER_COMPACTION_REASONING_EFFORT` | `inherit`, `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` |
@@ -223,11 +229,12 @@ Environment overrides:
 Example:
 
 ```bash
-PI_OPENAI_SERVER_COMPACTION_MID_RUN=resume \
 PI_OPENAI_SERVER_COMPACTION_MODEL=my-responses-provider/my-model \
 PI_OPENAI_SERVER_COMPACTION_REASONING_EFFORT=high \
 pi
 ```
+
+Pi's local automatic trigger is configured in Pi's own `settings.json`, not in this extension's configuration file.
 
 ## How compaction works
 
@@ -264,10 +271,8 @@ Users should be aware:
 
 ## Troubleshooting
 
-If something goes wrong:
-
 1. Set `"model": "current"` to bypass a custom compaction model while keeping the extension enabled.
-2. Set `"midRunCompaction": "off"` to disable only same-run triggering.
+2. Disable Pi's own automatic compaction in Pi settings when isolating automatic-trigger behavior; manual `/compact` remains available.
 3. Disable only direct-OpenAI `previous_response_id`/WebSocket behavior with `PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID=0 pi`.
 4. Disable the extension completely with `PI_OPENAI_SERVER_COMPACTION_ENABLED=0` or `"enabled": false`.
 5. Run Pi with `--no-extensions` to bypass extensions entirely.
@@ -290,13 +295,13 @@ Offline Responses V2 protocol regression:
 npm run smoke:v2
 ```
 
-Offline same-run adapter/trigger regression:
+Pi 0.84.4 host-contract regression for tool-boundary auto-compaction:
 
 ```bash
-npm run smoke:midrun
+npm run smoke:tool-boundary
 ```
 
-Offline custom-provider endpoint, header, fallback, trigger, and replay regression:
+Offline custom-provider endpoint, header, fallback, and replay regression:
 
 ```bash
 npm run smoke:custom-provider
@@ -319,6 +324,7 @@ The repository does not include credentials for a live custom-provider test.
 ## Limitations
 
 - Pi's local JSONL/tree model remains authoritative.
+- Pi 0.84.4+ decides when automatic compaction runs; the extension customizes the resulting compaction through public hooks only.
 - A custom provider must implement the Responses V2 streaming compaction protocol expected by this extension.
 - `previous_response_id` and the custom WebSocket transport remain limited to the existing direct-OpenAI compatibility path; custom-provider remote-history replay does not imply those features.
 - An actual compaction creates a new prompt-cache boundary; the first post-compaction request may be a cold or partial hit.
@@ -328,20 +334,19 @@ The repository does not include credentials for a live custom-provider test.
 
 | File | Purpose |
 |---|---|
-| `src/extension.ts` | Public entrypoint and same-run adapter installation |
+| `src/extension.ts` | Public entrypoint; delegates to public Pi extension hooks without patching `AgentSession` |
 | `src/index.ts` | Provider-agnostic wrapper around the compatibility core |
-| `src/index-core.ts` | Existing OpenAI/Codex lifecycle and compaction implementation |
+| `src/index-core.ts` | OpenAI/Codex lifecycle and compaction implementation |
 | `src/provider-agnostic-hooks.ts` | Configured-model attempt/fallback and custom-provider replay wrappers |
 | `src/remote-compaction-transport.ts` | Built-in and custom endpoint/header resolution |
 | `src/remote-compaction-v2.ts` | Incremental Responses V2 transport and validation |
-| `src/mid-run-compaction.ts` | Awaited `turn_end` threshold trigger |
-| `src/inline-auto-compaction.ts` | Pi 0.84.x private same-run adapter |
 | `src/openai-ws-stream.ts` | Direct-OpenAI WebSocket continuation path |
 | `src/config.ts` | Configuration loading |
 | `src/state.ts` | Ephemeral per-session runtime state |
+| `scripts/pi-tool-boundary-compaction-smoke.mjs` | Pi 0.84.4 native trigger and public-hook compatibility regression |
 | `scripts/custom-provider-compaction-smoke.mjs` | Custom-provider regression suite |
 | `tests/live/openai-compaction-rpc-live.ts` | Live Pi RPC regression test |
 
 ## License
 
-MIT. See `LICENSE.md` and `THIRD_PARTY_NOTICES.md`.
+MIT. See `LICENSE.md`.

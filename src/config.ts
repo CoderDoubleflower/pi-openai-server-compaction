@@ -19,8 +19,6 @@ export type CompactionReasoningEffort =
   | "high"
   | "xhigh";
 
-export type MidRunCompactionMode = "off" | "resume";
-
 export type ExtensionConfig = {
   enabled?: boolean;
   includeAzure?: boolean;
@@ -28,8 +26,6 @@ export type ExtensionConfig = {
   thresholdRatio?: number;
   notify?: boolean;
   usePreviousResponseId?: boolean;
-  /** Transparent same-run compaction at awaited turn boundaries. */
-  midRunCompaction?: MidRunCompactionMode;
   /** `current` or a Pi model reference in `provider/model-id` form. */
   model?: string;
   /** Remote compaction reasoning effort. `inherit` mirrors the active request. */
@@ -91,12 +87,6 @@ function toCompactionReasoningEffort(value: unknown): CompactionReasoningEffort 
   return undefined;
 }
 
-function toMidRunCompactionMode(value: unknown): MidRunCompactionMode | undefined {
-  const normalized = toNonEmptyString(value)?.toLowerCase();
-  if (normalized === "off" || normalized === "resume") return normalized;
-  return undefined;
-}
-
 export function loadConfig(cwd: string): Required<ExtensionConfig> {
   const globalPath = join(homedir(), ".pi", "agent", "openai-server-compaction.json");
   const projectPath = join(cwd, ".pi", "openai-server-compaction.json");
@@ -129,10 +119,6 @@ export function loadConfig(cwd: string): Required<ExtensionConfig> {
       toBoolean(process.env.PI_OPENAI_SERVER_COMPACTION_PREVIOUS_RESPONSE_ID) ??
       toBoolean(merged.usePreviousResponseId) ??
       true,
-    midRunCompaction:
-      toMidRunCompactionMode(process.env.PI_OPENAI_SERVER_COMPACTION_MID_RUN) ??
-      toMidRunCompactionMode(merged.midRunCompaction) ??
-      "off",
     model:
       toNonEmptyString(process.env.PI_OPENAI_SERVER_COMPACTION_MODEL) ??
       toNonEmptyString(merged.model) ??
