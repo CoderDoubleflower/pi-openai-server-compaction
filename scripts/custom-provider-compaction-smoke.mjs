@@ -4,7 +4,6 @@ import {
   resolveCompactionModelCandidates,
   tryCompactionModels,
 } from "../src/compaction-model-fallback.ts";
-import { registerMidRunCompaction } from "../src/mid-run-compaction.ts";
 import {
   modelKey,
   supportsRemoteCompactionModel,
@@ -238,53 +237,6 @@ assert.deepEqual(attemptOrder, [
       process.env.PI_OPENAI_SERVER_COMPACTION_MODEL = previousConfiguredModel;
     }
   }
-}
-
-{
-  const handlers = new Map();
-  let inlineCalls = 0;
-  const pi = {
-    on(name, handler) {
-      handlers.set(name, handler);
-    },
-  };
-  registerMidRunCompaction(pi, { supported: true }, {
-    inlineCompact: async () => {
-      inlineCalls += 1;
-      return { compactionEntryId: "cmp-custom" };
-    },
-    configLoader: () => ({
-      enabled: true,
-      includeAzure: false,
-      compactThreshold: 70,
-      thresholdRatio: 0.7,
-      notify: false,
-      usePreviousResponseId: true,
-      midRunCompaction: "resume",
-      model: "my-responses-gateway/custom-model",
-      reasoningEffort: "inherit",
-    }),
-  });
-
-  const sessionManager = { getSessionId: () => "midrun-custom" };
-  await handlers.get("turn_end")(
-    { message: { stopReason: "toolUse" }, toolResults: [{}] },
-    {
-      cwd: "/tmp/custom-provider-project",
-      model: customModel,
-      sessionManager,
-      signal: new AbortController().signal,
-      hasUI: false,
-      hasPendingMessages: () => false,
-      getContextUsage: () => ({
-        tokens: 75,
-        contextWindow: 100,
-        percent: 75,
-      }),
-      ui: { notify() {} },
-    },
-  );
-  assert.equal(inlineCalls, 1, "custom providers must reach the mid-run trigger");
 }
 
 {

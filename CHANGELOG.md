@@ -4,56 +4,32 @@ This changelog intentionally starts at **0.1.0**.
 
 ## Unreleased
 
+## 0.1.5 - 2026-08-29
+- require Pi `>=0.84.4 <0.85.0`; Pi now owns threshold checks between completed tool execution and the next assistant response in the same run
+- remove the extension-managed `turn_end` trigger, private `AgentSession` adapter, host discovery, retry/backoff state, and next-context patching
+- remove the `midRunCompaction` setting, its environment override, dedicated guide, obsolete smoke suite, and adapter-specific third-party notice
+- keep remote compaction on Pi's public `session_before_compact` and `session_compact` lifecycle
+- add a Pi 0.84.4 host-contract smoke test covering the native threshold call, refreshed context, public hook registration, and absence of an extension `turn_end` listener
+- retain `compactThreshold` and `thresholdRatio`; these configure direct-OpenAI Responses `context_management`, not Pi's local trigger
+
 ## 0.1.4 - 2026-08-25
-- remove the `openai` / `openai-codex` provider-name allowlist from mid-run and Responses V2 remote-compaction candidates
-- attempt the exact user-configured `provider/model` first, including custom API identifiers with an explicit compatible `baseUrl`
-- preserve provider-supplied request headers and continue using the existing specialized OpenAI and ChatGPT/Codex transport behavior for built-in models
-- fall back from a failed configured model to the current session model, then to the portable local summary and finally Pi's default compaction
-- replay persisted remote-compaction history for matching custom provider/model requests based on the successful model key rather than provider identity
-- add offline coverage for custom endpoints, headers, model ordering, operational fallback, mid-run triggering, and remote-history replay
+- support configured custom Responses-compatible compaction providers, provider headers, base URL overrides, fallback to the current model, and model-keyed replay
+- add offline custom-provider transport, fallback, and replay coverage
 
 ## 0.1.3 - 2026-08-25
-- add opt-in `midRunCompaction: "resume"` for transparent threshold compaction at awaited `turn_end` boundaries during long tool loops
-- call Pi 0.84.x's private non-aborting `_runAutoCompaction("threshold", false)` pipeline so the original agent run and `session.prompt()` promise remain active without synthetic continuation messages
-- capture the owning host `AgentSession`, fail closed on unknown private-method shapes, reject unpaired tool calls, forward real cancellation to `abortCompaction()`, and refresh the next low-level message snapshot from compacted `agent.state.messages`
-- add per-session in-flight isolation, exponential retry backoff, one-time unsupported-host warnings, and an offline smoke suite covering same-run continuation, context refresh, tool-call safety, cancellation, configuration, threshold triggering, and retry suppression
+- introduced an opt-in private compatibility adapter for same-run compaction on Pi 0.84.3; this implementation is removed in 0.1.5 because Pi 0.84.4 provides the capability natively
 
 ## 0.1.2 - 2026-08-25
-- consume Responses V2 compaction as an incremental SSE stream instead of buffering the successful response with `response.text()`
-- validate that the stream completes with exactly one non-empty encrypted `compaction` blob and normalize the `compaction_summary` compatibility alias
-- surface nested `error` and `response.failed` messages, preserve abort behavior during stream reads, and reject malformed or incomplete SSE responses
-- add an offline protocol smoke test covering arbitrary byte chunking, split UTF-8 code points, CRLF framing, `[DONE]`, empty/duplicate blobs, failed streams, missing completion, and the full request-to-persisted-history path
+- consume Responses V2 compaction incrementally over SSE
+- validate exactly one non-empty encrypted compaction item and harden stream error, cancellation, UTF-8, and completion handling
 
 ## 0.1.1 - 2026-08-22
-- restore Pi-native OpenAI prompt-cache behavior on the custom WebSocket transport
-- send a stable, Unicode-aware, 64-code-point-clamped `prompt_cache_key` derived from Pi's session id
-- preserve Pi's `short`, `long`, and `none` cache-retention semantics, including model-gated `prompt_cache_retention: "24h"` and GPT-5.6+ explicit cache-disable mode
-- apply cache defaults before the caller's `onPayload` hook so callers can still inspect or override the final payload
-- add an offline prompt-cache payload regression test covering key clamping, long-retention compatibility, cache disabling, and stale-field replacement
-- port the extension from its earlier Pi 0.80.9 integration to Pi 0.84.2, including updated peer and development dependencies and Node `>=22.19.0`
-- retain the Responses compaction v2 protocol, replacement-history normalization, Codex identity headers, WebSocket continuation, and HTTP fallback on the updated Pi API surface
-- replace the legacy `/responses/compact` call with a normal Responses stream containing a trailing `compaction_trigger`, and persist the returned `compaction` item
-- retain recent user messages with the same 20K-token budget shape used by Codex while continuing to read legacy version 1 session artifacts
-- add reproducible native-vs-text and product-defaults compaction benchmarks, including corrected caveats around billed-token matching and the earlier same-budget interpretation
-- correct package repository, homepage, and issue-tracker metadata for the CoderDoubleflower fork
-
-During local development on 2026-04-09, the project used temporary internal version bumps while features, tests, docs, and packaging were being assembled. Those local-only bumps were collapsed before the first public push so the repository does not imply a longer tracked public release history than it actually has.
+- restore Pi-native prompt-cache behavior on the custom WebSocket transport
+- port the extension to Pi 0.84.x and migrate remote compaction to a streamed Responses request containing `compaction_trigger`
+- add reproducible native-vs-text and product-defaults benchmarks
 
 ## 0.1.0 - 2026-04-09
 - initial public release
-- added hybrid Codex-style remote compaction for direct OpenAI Responses models
-- added OpenAI `POST /v1/responses/compact` integration
-- persisted opaque replacement history in Pi compaction details
-- reconstructed remote compaction state across resume/reload/tree navigation
-- added WS-backed continuation and conservative `previous_response_id` reuse
-- tightened direct OpenAI continuation so unchanged request shapes send only incremental post-turn deltas instead of replaying full input alongside `previous_response_id`
-- fixed reconstructed post-compaction remote replay to exclude turns completed by other models after later resume/tree reconstruction
-- kept portable Pi text summaries as the readable fallback and non-OpenAI portability path
-- hardened cross-model runtime state handling and remote output validation
-- mirrored observed Responses `reasoning` and `text` tuning into remote compaction requests when available, with thinking-level fallback for reasoning
-- fixed the direct OpenAI WS path to carry reasoning configuration and encrypted-reasoning inclusion like Pi's normal HTTP Responses path
-- persisted remote compaction usage metadata when the backend returns it
-- added a reduced-plaintext live replay regression with tiny Pi `keepRecentTokens`
-- added a live Pi RPC regression harness in `tests/live/openai-compaction-rpc-live.ts`
-- added a local smoke harness that bootstraps Pi peer-package links and runs small regression checks
-- added `ARCHITECTURE.md`, testing docs, packaging polish, and MIT licensing
+- add hybrid portable-summary and provider-native compaction continuity
+- persist and reconstruct remote replacement history across resume, model changes, and tree operations
+- add WebSocket continuation, conservative `previous_response_id` reuse, live RPC coverage, documentation, and MIT licensing
