@@ -30,6 +30,14 @@ export type ExtensionConfig = {
   model?: string;
   /** Remote compaction reasoning effort. `inherit` mirrors the active request. */
   reasoningEffort?: CompactionReasoningEffort;
+  /** Experimental Codex window lifecycle; NOT Responses context_management. */
+  contextManagement?: "off" | "remote";
+  /** Percentage of usable context remaining that triggers a checkpoint reminder. */
+  contextReminderThresholdPercent?: number;
+  /** Exact provider/model references whose gateway implements Codex alpha APIs. */
+  contextManagementGatewayModels?: string[];
+  /** Optional same-origin backend root; defaults to the gateway's resolved baseUrl. */
+  contextManagementGatewayBaseUrl?: string;
 };
 
 export function isRecord(value: unknown): value is JsonRecord {
@@ -87,6 +95,26 @@ function toCompactionReasoningEffort(value: unknown): CompactionReasoningEffort 
   return undefined;
 }
 
+function contextMode(value: unknown): "off" | "remote" | undefined {
+  return value === "off" || value === "remote" ? value : undefined;
+}
+
+function percentage(value: unknown): number | undefined {
+  if (typeof value !== "number" && typeof value !== "string") return undefined;
+  if (typeof value === "string" && !value.trim()) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : undefined;
+}
+
+function modelReferences(value: unknown): string[] | undefined {
+  if (typeof value === "string") {
+    try { value = value.trim().startsWith("[") ? JSON.parse(value) : value.split(","); }
+    catch { return undefined; }
+  }
+  if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) return undefined;
+  return [...new Set(value.map((v: string) => v.trim()).filter((v) => /^[^/\s]+\/.+/.test(v)))];
+}
+
 export function loadConfig(cwd: string): Required<ExtensionConfig> {
   const globalPath = join(homedir(), ".pi", "agent", "openai-server-compaction.json");
   const projectPath = join(cwd, ".pi", "openai-server-compaction.json");
@@ -127,6 +155,18 @@ export function loadConfig(cwd: string): Required<ExtensionConfig> {
       toCompactionReasoningEffort(process.env.PI_OPENAI_SERVER_COMPACTION_REASONING_EFFORT) ??
       toCompactionReasoningEffort(merged.reasoningEffort) ??
       "inherit",
+    contextManagement:
+      contextMode(process.env.PI_OPENAI_SERVER_COMPACTION_CONTEXT_MANAGEMENT) ??
+      contextMode(merged.contextManagement) ?? "off",
+    contextReminderThresholdPercent:
+      percentage(process.env.PI_OPENAI_SERVER_COMPACTION_CONTEXT_REMINDER_PERCENT) ??
+      percentage(merged.contextReminderThresholdPercent) ?? 10,
+    contextManagementGatewayModels:
+      modelReferences(process.env.PI_OPENAI_SERVER_COMPACTION_CONTEXT_GATEWAY_MODELS) ??
+      modelReferences(merged.contextManagementGatewayModels) ?? [],
+    contextManagementGatewayBaseUrl:
+      toNonEmptyString(process.env.PI_OPENAI_SERVER_COMPACTION_CONTEXT_GATEWAY_BASE_URL) ??
+      toNonEmptyString(merged.contextManagementGatewayBaseUrl) ?? "",
   };
 }
 
