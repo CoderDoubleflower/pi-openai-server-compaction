@@ -15,6 +15,7 @@ import { applyOpenAIPromptCacheFields } from "./openai-prompt-cache.ts";
 import { createOpenAIWebSocketStreamFn } from "./openai-ws-stream.ts";
 import { loadConfig } from "./config.ts";
 import { isDirectOpenAIResponsesModel } from "./openai.ts";
+import { coversModel } from "./context-management/backend.ts";
 
 const websocketStream = createOpenAIWebSocketStreamFn();
 
@@ -48,7 +49,9 @@ export const streamOpenAIResponsesWithPhase2B: StreamFunction = (
   options,
 ) => {
   const cfg = loadConfig(process.cwd());
-  if (!cfg.enabled || !isDirectOpenAIResponsesModel(model)) {
+  // Remote Context owns the window, not a stored-response/WebSocket chain.
+  // Codex and custom provider transports remain Pi-owned and are never replaced.
+  if (!cfg.enabled || coversModel(model, cfg) || !isDirectOpenAIResponsesModel(model)) {
     return streamSimpleOpenAIResponses(
       model as Model<"openai-responses">,
       context as Context,
